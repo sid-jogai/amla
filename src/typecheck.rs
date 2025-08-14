@@ -8,6 +8,15 @@ use crate::ast::Ty;
 use crate::err;
 use std::collections::HashMap;
 
+pub fn typecheck(ast: &mut Stmt) -> Result<(), err::E> {
+    let mut m = TypeMap::new();
+
+    match typecheck_stmt(ast, &mut m) {
+        Err(e) => Err(e),
+        _ => Ok(()),
+    }
+}
+
 #[derive(Debug)]
 struct TypeMap {
     v: Vec<HashMap<String, Ty>>,
@@ -39,15 +48,6 @@ impl TypeMap {
     }
 }
 
-pub fn typecheck(ast: &mut Stmt) -> Result<(), err::E> {
-    let mut m = TypeMap::new();
-
-    match typecheck_stmt(ast, &mut m) {
-        Err(e) => Err(e),
-        _ => Ok(()),
-    }
-}
-
 fn typecheck_stmt(stmt: &mut Stmt, m: &mut TypeMap) -> Result<(), err::E> {
     match &mut stmt.stmt {
         //             StmtKind::If(_) => Ok(()),
@@ -68,7 +68,6 @@ fn typecheck_stmt(stmt: &mut Stmt, m: &mut TypeMap) -> Result<(), err::E> {
             Ok(())
         }
         StmtKind::Assign(assign) => {
-            println!("Assign {:?}", assign);
             // NOTE: for now, the type is filled in since type inference is not supported.
             let ty = typecheck_expr(&mut assign.val, m)?;
 
@@ -80,27 +79,21 @@ fn typecheck_stmt(stmt: &mut Stmt, m: &mut TypeMap) -> Result<(), err::E> {
 
             m.insert(assign.name.name.clone(), ty.clone());
 
-            println!("Got {:?} for {:?}", ty, assign);
-
             Ok(())
         }
         StmtKind::FnDecl(func) => {
             m.insert(func.name.name.clone(), func.ty());
 
             m.push_scope();
-            println!("here!");
             for param in &func.params {
                 m.insert(param.name.name.clone(), param.ty.ty.clone());
                 // TODO: check for duplicates
-                println!("{:?}", param);
             }
-            println!("Now the map is {:?}", m);
             typecheck_stmt(&mut func.body, m)?;
             m.pop_scope();
             Ok(())
         }
         StmtKind::ExprStmt(expr) => {
-            println!("Starting the expr type check");
             let ty = typecheck_expr(expr, m)?;
             expr.ty = ty;
             Ok(())
@@ -112,13 +105,10 @@ fn typecheck_stmt(stmt: &mut Stmt, m: &mut TypeMap) -> Result<(), err::E> {
 
 fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, err::E> {
     let expr_ty = match &mut expr.expr {
-        ExprKind::Identifier(ast::Identifier(s)) => {
-            println!("lookup of {s} gives {:?}", m.lookup(s));
-            match m.lookup(s) {
-                None => Err(undeclared_identifier_err(expr.pos, s)),
-                Some(ty) => Ok(ty),
-            }
-        }
+        ExprKind::Identifier(ast::Identifier(s)) => match m.lookup(s) {
+            None => Err(undeclared_identifier_err(expr.pos, s)),
+            Some(ty) => Ok(ty),
+        },
         ExprKind::Literal(literal) => Ok(match literal {
             ast::Literal::Str(_) => Ty::Str,
             ast::Literal::Number(_) => Ty::Numeric,
@@ -131,8 +121,6 @@ fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, err::E> {
                 ExprKind::Identifier(ast::Identifier(fn_name)) => fn_name,
                 _ => &"<function object>".to_string(),
             };
-
-            println!("The type is {:?}", fn_ty);
 
             let (params, ret) = match fn_ty {
                 Ty::Fn(ref params, ref ret) => (params, ret.clone()),
@@ -178,13 +166,8 @@ fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, err::E> {
 
                 if *param_ty != Ty::Any && *param_ty != arg_ty {
                     let footnote = format!("{caller_name}: {fn_ty}");
-                    return Err(ty_missmatch_err(&param_ty, &arg_ty, arg.pos, &footnote));
+                    return Err(ty_missmatch_err(param_ty, &arg_ty, arg.pos, &footnote));
                 }
-
-                println!(
-                    "The param is {:?} and the arg is {:?} with ty {:?}",
-                    param_ty, arg, arg_ty
-                );
             }
             Ok(*ret)
         }
@@ -267,7 +250,7 @@ fn bad_caller_err(pos: Pos) -> err::E {
 }
 
 fn incorrect_fn_args_count_error(pos: Pos, footnote: &str) -> err::E {
-    let text = format!("incorrect number of arguments supplied");
+    let text = "incorrect number of arguments supplied".to_string();
     err::E {
         text,
         source: pos,

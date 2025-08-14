@@ -5,185 +5,107 @@ pub mod parse;
 pub mod transpile;
 pub mod typecheck;
 
-use std::fs;
+use err::Source;
+
+use std::io;
+use std::io::Write;
 use std::process::Command;
 
-#[derive(Debug)]
+#[derive(PartialEq)]
 enum Cmd {
-    Transpile(String),
-    Lex(String),
-    Parse(String),
-    Compile(String),
+    Lex,
+    Parse,
+    Compile,
+    Run,
+    Usage,
 }
 
-fn parse_cmd(mut args: std::env::Args) -> Option<Cmd> {
-    args.next();
-    match (args.next(), args.next()) {
-        (Some(file), None) => Some(Cmd::Transpile(file)),
-        (Some(arg), Some(file)) => match &arg[..] {
-            "--lex" => Some(Cmd::Lex(file)),
-            "--parse" => Some(Cmd::Parse(file)),
-            "--transpile" => Some(Cmd::Transpile(file)),
-            "--compile" => Some(Cmd::Compile(file)),
-            _ => None,
-        },
-        _ => None,
+fn usage() -> ! {
+    println!("Usage: amla [command]\n");
+    println!("Commands:");
+    println!("\tlex");
+    println!("\tparse");
+    println!("\tcompile");
+    println!("\trun");
+    std::process::exit(0);
+}
+
+fn die(msg: &str) -> ! {
+    eprintln!("{msg}");
+    std::process::exit(1);
+}
+
+fn go(cmd: Cmd, source: &Source) -> Result<(), err::E> {
+    match cmd {
+        Cmd::Lex => {
+            for token in lex::lex(source)? {
+                println!("{:?}", token);
+            }
+        }
+        Cmd::Parse => {
+            let tokens = lex::lex(source)?;
+            let ast = parse::parse(source, &tokens)?;
+            println!("{:#?}", ast);
+        }
+        Cmd::Compile => {
+            let tokens = lex::lex(source)?;
+            let mut ast = parse::parse(source, &tokens)?;
+            typecheck::typecheck(&mut ast)?;
+
+            let c_code = transpile::transpile(ast)?;
+            println!("{c_code}"); // NOTE: for debugging.
+
+            if let Err(err) = transpile::compile(c_code) {
+                die(&err);
+            };
+        }
+        Cmd::Run => {
+            let tokens = lex::lex(source)?;
+            let mut ast = parse::parse(source, &tokens)?;
+            typecheck::typecheck(&mut ast)?;
+
+            let c_code = transpile::transpile(ast)?;
+            if let Err(err) = transpile::compile(c_code) {
+                die(&err);
+            };
+
+            let result = Command::new("./a.out").output().unwrap();
+            let stdout = String::from_utf8_lossy(&result.stdout);
+            print!("{}", stdout);
+            io::stdout().flush().unwrap();
+        }
+        _ => usage(),
     }
-}
-
-fn lex(file: &str) {
-    let src = std::fs::read_to_string(file).unwrap_or_else(|_| panic!("Error reading {file}"));
-    let show = err::ErrorDisplay {
-        src: &src,
-        filename: file,
-    };
-    let tokens = match lex::lex(&src) {
-        Ok(tokens) => tokens,
-        Err(errors) => {
-            for err in &errors {
-                println!("{}", show.make_error(err));
-            }
-            return;
-        }
-    };
-    for t in tokens {
-        println!("{:?}", t);
-    }
-}
-
-fn parse(file: &str) {
-    let src = std::fs::read_to_string(file).unwrap_or_else(|_| panic!("Error reading {file}"));
-    let show = err::ErrorDisplay {
-        src: &src,
-        filename: file,
-    };
-    let tokens = match lex::lex(&src) {
-        Ok(tokens) => tokens,
-        Err(errors) => {
-            for err in &errors {
-                println!("{}", show.make_error(err));
-            }
-            return;
-        }
-    };
-    let ast = match parse::parse(&src, &tokens) {
-        Err(err) => {
-            println!("{}", show.make_error(&err));
-            return;
-        }
-        Ok(ast) => ast,
-    };
-    println!("{:?}", ast);
-}
-
-fn transpile(file: &str) {
-    #[rustfmt::skip]
-    let src = std::fs::read_to_string(file)
-        .unwrap_or_else(|_| panic!("Error reading {file}"));
-    let show = err::ErrorDisplay {
-        src: &src,
-        filename: file,
-    };
-    let tokens = match lex::lex(&src) {
-        Ok(tokens) => tokens,
-        Err(errors) => {
-            for err in &errors {
-                println!("{}", show.make_error(err));
-            }
-            return;
-        }
-    };
-    let mut ast = match parse::parse(&src, &tokens) {
-        Err(err) => {
-            println!("{}", show.make_error(&err));
-            return;
-        }
-        Ok(ast) => ast,
-    };
-    if let Err(err) = typecheck::typecheck(&mut ast) {
-        println!("{}", show.make_error(&err));
-        return;
-    }
-    let source = match transpile::transpile(ast) {
-        Err(err) => {
-            println!("{}", show.make_error(&err));
-            return;
-        }
-        Ok(source) => source,
-    };
-    println!("{}", source);
-}
-
-fn compile(file: &str) {
-    #[rustfmt::skip]
-    let src = std::fs::read_to_string(file)
-        .unwrap_or_else(|_| panic!("Error reading {file}"));
-    let show = err::ErrorDisplay {
-        src: &src,
-        filename: file,
-    };
-    let tokens = match lex::lex(&src) {
-        Ok(tokens) => tokens,
-        Err(errors) => {
-            for err in &errors {
-                println!("{}", show.make_error(err));
-            }
-            return;
-        }
-    };
-    let ast = match parse::parse(&src, &tokens) {
-        Err(err) => {
-            println!("{}", show.make_error(&err));
-            return;
-        }
-        Ok(ast) => ast,
-    };
-    let source = match transpile::transpile(ast) {
-        Err(err) => {
-            println!("{}", show.make_error(&err));
-            return;
-        }
-        Ok(source) => source,
-    };
-
-    fs::write("generated.c", source).expect("Write error");
-
-    let output = Command::new("cc")
-        .arg("-Wall")
-        .arg("-Wextra")
-        .arg("-Wpedantic")
-        .arg("generated.c")
-        .output()
-        .expect("Compiler error");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    if !stdout.trim().is_empty() {
-        println!("{}", stdout);
-    };
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if !stderr.trim().is_empty() {
-        println!("{}", stderr);
-    };
-
-    // if output.status.success() {
-    //     println!("WTF{}", String::from_utf8_lossy(&output.stderr));
-    //     let stdout = String::from_utf8_lossy(&output.stdout);
-    //     if !stdout.trim().is_empty() {
-    //         println!("stdout: {}", stdout);
-    //     };
-    // } else {
-    //     println!("1WTF{}", String::from_utf8_lossy(&output.stderr));
-    //     println!("{}", String::from_utf8_lossy(&output.stderr));
-    // }
+    Ok(())
 }
 
 pub fn main() {
-    match parse_cmd(std::env::args()) {
-        Some(Cmd::Lex(file)) => lex(&file),
-        Some(Cmd::Parse(file)) => parse(&file),
-        Some(Cmd::Transpile(file)) => transpile(&file),
-        Some(Cmd::Compile(file)) => compile(&file),
-        _ => (),
+    let mut args = std::env::args();
+    args.next();
+    let (cmd, filename) = match (args.next(), args.next()) {
+        (Some(arg), Some(file)) => match &arg[..] {
+            "lex" => (Cmd::Lex, file),
+            "parse" => (Cmd::Parse, file),
+            "compile" => (Cmd::Compile, file),
+            "run" => (Cmd::Run, file),
+            _ => (Cmd::Usage, "".to_string()),
+        },
+        _ => (Cmd::Usage, "".to_string()),
     };
+    if cmd == Cmd::Usage {
+        usage();
+    }
+
+    let text = match std::fs::read_to_string(&filename) {
+        Ok(text) => text,
+        Err(err) => {
+            die(&format!("Error opening {}: {}", filename, err));
+        }
+    };
+
+    let source = Source { filename, text };
+
+    if let Err(e) = go(cmd, &source) {
+        eprintln!("{}", err::new(&e, &source));
+    }
 }

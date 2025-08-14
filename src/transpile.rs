@@ -5,6 +5,49 @@ use crate::ast::StmtKind;
 use crate::ast::Ty;
 use crate::err;
 
+use std::fs;
+use std::process::Command;
+
+pub fn transpile(ast: ast::Stmt) -> Result<String, err::E> {
+    let mut s = String::new();
+    let mut ctx = Ctx { depth: 0 };
+
+    prelude(&mut ctx, &mut s);
+    match ast.transpile(&mut ctx, &mut s) {
+        Ok(_) => Ok(s),
+        Err(err) => Err(err),
+    }
+}
+
+pub fn compile(c_code: String) -> Result<String, String> {
+    // TODO: get c file name or a better default based on file name.
+    // TODO: better error message
+
+    fs::write("generated.c", c_code).expect("Write error");
+
+    let output = match Command::new("cc")
+        .arg("-Wall")
+        .arg("-Wextra")
+        .arg("-Wpedantic")
+        .arg("generated.c")
+        .output()
+    {
+        Ok(output) => output,
+        _ => return Err("Error running cc".to_string()),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if !stdout.trim().is_empty() {
+        println!("{}", stdout);
+    };
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.trim().is_empty() {
+        println!("{}", stderr);
+    };
+    Ok("generated.c".to_string())
+}
+
 trait Transpile {
     fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E>;
 }
@@ -27,17 +70,6 @@ impl Ctx {
         }
         s.push('}');
         // s.push('\n');
-    }
-}
-
-pub fn transpile(ast: ast::Stmt) -> Result<String, err::E> {
-    let mut s = String::new();
-    let mut ctx = Ctx { depth: 0 };
-
-    prelude(&mut ctx, &mut s);
-    match ast.transpile(&mut ctx, &mut s) {
-        Ok(_) => Ok(s),
-        Err(err) => Err(err),
     }
 }
 
@@ -86,7 +118,7 @@ impl Transpile for ast::Fn {
         s.push('\n');
         s.push_str(&self.name.name);
         s.push_str(" (");
-        if self.params.len() == 0 {
+        if self.params.is_empty() {
             s.push_str("void");
         }
         for (i, param) in self.params.iter().enumerate() {
@@ -131,7 +163,7 @@ impl Transpile for ast::Return {
             Some(expr) => {
                 s.push_str("return ");
                 expr.transpile(ctx, s)?;
-                s.push_str(";");
+                s.push(';');
             }
         };
         Ok(())
@@ -308,7 +340,7 @@ fn prelude(_: &mut Ctx, s: &mut String) {
 
 fn print(
     call_expr: &ast::Expr,
-    args: &Vec<ast::Expr>,
+    args: &[ast::Expr],
     ctx: &mut Ctx,
     s: &mut String,
 ) -> Result<(), err::E> {
@@ -336,14 +368,12 @@ fn print(
             Ty::I64 => "PRId64",
             _ => todo!("format specifier for {:?}", args[j + 1].ty),
         };
-        println!("!!! {:?}", args[j + 1]);
         c_format_string.push_str("%\" ");
         c_format_string.push_str(format_specifier);
         c_format_string.push(' ');
 
         i = part.0 + 2;
     }
-    println!("All {:?}", args);
     c_format_string.push('"');
     c_format_string.push_str(&format_string[i..]);
     c_format_string.push_str("\\n\"");
@@ -364,6 +394,6 @@ fn print(
             s.push_str(", ");
         }
     }
-    s.push_str(")");
+    s.push(')');
     Ok(())
 }

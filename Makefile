@@ -1,10 +1,12 @@
-check:
+c:
 	cargo check
+it:
+	cargo build --release
+	cp ./target/release/amla .
 
-lint:
+f:
 	cargo fmt
 	cargo clippy
 
-release:
-	cargo build --release
-	cp ./target/release/amla .
+tidy:
+	rm -rf a.out amla target/

@@ -1,16 +1,19 @@
+// TODO: remove this!
 #![allow(unused)]
+
 use crate::ast;
 use crate::ast::ExprKind;
 use crate::ast::Pos;
 use crate::ast::StmtKind;
 use crate::ast::Ty;
 use crate::err;
+use crate::err::Source;
 use crate::err::syntax_error;
 use crate::lex;
 use crate::lex::TokenType;
 
-pub fn parse(src: &str, tokens: &[lex::Token]) -> Result<ast::Stmt, err::E> {
-    let parser = Parser::new(src, tokens);
+pub fn parse(source: &Source, tokens: &[lex::Token]) -> Result<ast::Stmt, err::E> {
+    let parser = Parser::new(&source.text, tokens);
     parser.parse_prog()
 }
 

@@ -1,6 +1,14 @@
 use crate::ast::Pos;
 use crate::err;
+use crate::err::Source;
 use crate::err::syntax_error;
+
+pub fn lex(source: &Source) -> Result<Vec<Token>, err::E> {
+    match Lexer::new(&source.text).lex() {
+        Ok(tokens) => Ok(tokens),
+        Err(mut errors) => Err(errors.remove(0)),
+    }
+}
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Token {
@@ -74,10 +82,6 @@ struct Lexer<'src> {
     errors: Vec<err::E>,
     /// Unbalanced parentheses are detected in the lexer.
     parens: Vec<Pos>,
-}
-
-pub fn lex(s: &str) -> Result<Vec<Token>, Vec<err::E>> {
-    Lexer::new(s).lex()
 }
 
 impl Lexer<'_> {
