@@ -1,0 +1,16 @@
+func print(s: str, ...args: any) {
+	// Compiler builtin
+}
+
+
+
+
+
+
+
+
+func main() int {
+	print("hello, world!");
+	return 0;
+}
+
