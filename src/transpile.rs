@@ -150,6 +150,7 @@ impl Transpile for ast::Ty {
             ast::Ty::Int => s.push_str("int"),
             ast::Ty::I32 => s.push_str("int32_t"),
             ast::Ty::I64 => s.push_str("int64_t"),
+	    ast::Ty::Bool => s.push_str("bool"),
             _ => s.push_str("<type>"),
         }
         Ok(())
@@ -226,9 +227,6 @@ impl Transpile for ast::Call {
                     "-" => Some(BinOpKind::Minus),
                     ">" => Some(BinOpKind::Greater),
                     "<" => Some(BinOpKind::Less),
-                    "print" => {
-                        return Ok(());
-                    }
                     _ => None,
                 };
                 if let Some(op) = op {
@@ -322,20 +320,8 @@ impl Transpile for ast::Assign {
 
 // TODO: maybe make these types instead of strings
 fn prelude(_: &mut Ctx, s: &mut String) {
-    let imports = [
-        "<stdint.h>",   // int64_t, etc.
-        "<inttypes.h>", // PRId64, etc.
-        "<stdio.h>",    // printf
-    ];
-
-    for import in imports {
-        s.push_str("#include ");
-        s.push_str(import);
-        s.push('\n');
-    }
-
-    s.push('\n');
-    s.push('\n');
+    let c_prelude = include_str!("prelude.c");
+    s.push_str(c_prelude);
 }
 
 fn print(
@@ -360,6 +346,13 @@ fn print(
     }
     let mut i = 0;
     for (j, part) in parts.into_iter().enumerate() {
+	if args[j + 1].ty == Ty::Bool {
+	    c_format_string.push_str("\"");
+	    c_format_string.push_str(&format_string[i..part.0]);
+	    c_format_string.push_str("%s\"");
+	    i = part.0 + 2;
+	    continue
+	}
         c_format_string.push('"');
         c_format_string.push_str(&format_string[i..part.0]);
 
@@ -389,7 +382,14 @@ fn print(
             continue;
         }
 
-        arg.transpile(ctx, s)?;
+	if arg.ty == Ty::Bool {
+	    s.push_str("bool_string(");
+	    arg.transpile(ctx, s)?;
+	    s.push(')');
+	} else {
+            arg.transpile(ctx, s)?;
+	}
+
         if i < args.len() - 1 {
             s.push_str(", ");
         }

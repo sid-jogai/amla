@@ -1,0 +1,23 @@
+func hello() {
+	print("hello, world!");
+}
+
+func shownums() {
+	small: i32 = 24601;
+	big: i64 = 9000000000000000000;
+	print("%v and %v!", small, big);
+}
+
+func showbools() {
+	print("%v and %v!", true, false);
+}
+
+func main() int {
+	hello();
+	shownums();
+	showbools();
+}
+
+// hello, world!
+// 24601 and 9000000000000000000!
+// true and false!

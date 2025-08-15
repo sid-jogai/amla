@@ -1,3 +1,1 @@
-func print(s: str, ...args: any) {
-	// builtin
-}
+func print(format: str, ...args: any) {}

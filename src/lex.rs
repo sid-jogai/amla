@@ -73,6 +73,9 @@ pub enum TokenType {
     Tab,
     While,
     Ellipsis,
+
+    True, // true
+    False, // false
 }
 
 struct Lexer<'src> {
@@ -262,6 +265,8 @@ impl Lexer<'_> {
                     "if" => TokenType::If,
                     "return" => TokenType::Return,
                     "while" => TokenType::While,
+		    "true" => TokenType::True,
+		    "false" => TokenType::False,
                     _ => TokenType::Identifier,
                 };
                 self.add_tok(kind, end - start)

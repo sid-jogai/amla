@@ -39,7 +39,7 @@ enum Prec {
 
 fn prefix_prec(tok_kind: TokenType) -> Prec {
     match tok_kind {
-        TokenType::Identifier | TokenType::Number => Prec::Assign,
+        TokenType::Identifier | TokenType::Number | TokenType::True | TokenType::False => Prec::Assign,
         TokenType::Minus => Prec::Neg,
         TokenType::Lparen => Prec::Group,
         _ => Prec::Invalid,
@@ -384,6 +384,8 @@ impl<'a> Parser<'a> {
                 | TokenType::Minus
                 | TokenType::Lparen
                 | TokenType::Str
+		| TokenType::True
+		| TokenType::False
         );
         let mut left = self.prefix_expr(tok)?;
         let new_prec = infix_prec(self.peek_tok().ty);
@@ -453,6 +455,16 @@ impl<'a> Parser<'a> {
                     expr: ExprKind::Literal(ast::Literal::Number(value)),
                 })
             }
+            t @ (TokenType::True | TokenType::False) => {
+		let expr = ast::Literal::Bool(if t==TokenType::True {true} else {false});
+                Ok(ast::Expr {
+                    id: self.new_id(),
+                    pos: tok.pos,
+                    ty: Ty::NoneYet,
+                    expr: ExprKind::Literal(expr),
+                })
+            }
+
             TokenType::Lparen => {
                 let expr = self.parse_expr(Prec::Assign)?;
 
