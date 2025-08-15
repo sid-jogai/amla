@@ -6,6 +6,7 @@ use crate::ast::Stmt;
 use crate::ast::StmtKind;
 use crate::ast::Ty;
 use crate::err;
+use crate::err::E;
 use std::collections::HashMap;
 
 pub fn typecheck(ast: &mut Stmt) -> Result<(), err::E> {
@@ -68,13 +69,19 @@ fn typecheck_stmt(stmt: &mut Stmt, m: &mut TypeMap) -> Result<(), err::E> {
             Ok(())
         }
         StmtKind::Assign(assign) => {
-            // NOTE: for now, the type is filled in since type inference is not supported.
+            // TODO: support simple type inference
             let ty = typecheck_expr(&mut assign.val, m)?;
 
             let ty = match (&assign.ty.ty, ty) {
                 (Ty::I64, Ty::Numeric) => Ty::I64,
                 (Ty::I32, Ty::Numeric) => Ty::I32,
-                (ty, _) => ty.clone(),
+                (annotation, got) => {
+                    if got == *annotation {
+                        got.clone()
+                    } else {
+                        return Err(E::invalid_assignment_error(stmt.pos, annotation, &got));
+                    }
+                }
             };
 
             m.insert(assign.name.name.clone(), ty.clone());

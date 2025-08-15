@@ -5,6 +5,7 @@ pub mod parse;
 pub mod transpile;
 pub mod typecheck;
 
+use err::E;
 use err::Source;
 
 use std::io;
@@ -35,7 +36,34 @@ fn die(msg: &str) -> ! {
     std::process::exit(1);
 }
 
-fn go(cmd: Cmd, source: &Source) -> Result<(), err::E> {
+// TODO: figure out a module system.
+//
+// Until then, just splice in the prelude AST.
+fn add_prelude(ast: ast::Stmt) -> Result<ast::Stmt, E> {
+    let prelude_str = include_str!("prelude.amla");
+    let prelude_source = Source {
+        filename: "prelude.amla".to_string(),
+        text: prelude_str.to_string(),
+    };
+    let prelude_tokens = lex::lex(&prelude_source)?;
+    let prelude_ast = parse::parse(&prelude_source, &prelude_tokens)?;
+
+    let stmt = match (prelude_ast.stmt, ast.stmt) {
+        (ast::StmtKind::Block(mut prelude_stmts), ast::StmtKind::Block(mut stmts)) => {
+            prelude_stmts.append(&mut stmts);
+            ast::StmtKind::Block(prelude_stmts)
+        }
+        _ => unreachable!(),
+    };
+    let ast = ast::Stmt {
+        id: ast.id,
+        pos: ast.pos,
+        stmt: stmt,
+    };
+    Ok(ast)
+}
+
+fn go(cmd: &Cmd, source: &Source) -> Result<(), err::E> {
     match cmd {
         Cmd::Lex => {
             for token in lex::lex(source)? {
@@ -49,9 +77,9 @@ fn go(cmd: Cmd, source: &Source) -> Result<(), err::E> {
         }
         Cmd::Compile => {
             let tokens = lex::lex(source)?;
-            let mut ast = parse::parse(source, &tokens)?;
+            let ast = parse::parse(source, &tokens)?;
+            let mut ast = add_prelude(ast)?;
             typecheck::typecheck(&mut ast)?;
-
             let c_code = transpile::transpile(ast)?;
             println!("{c_code}"); // NOTE: for debugging.
 
@@ -61,9 +89,9 @@ fn go(cmd: Cmd, source: &Source) -> Result<(), err::E> {
         }
         Cmd::Run => {
             let tokens = lex::lex(source)?;
-            let mut ast = parse::parse(source, &tokens)?;
+            let ast = parse::parse(source, &tokens)?;
+            let mut ast = add_prelude(ast)?;
             typecheck::typecheck(&mut ast)?;
-
             let c_code = transpile::transpile(ast)?;
             if let Err(err) = transpile::compile(c_code) {
                 die(&err);
@@ -77,6 +105,15 @@ fn go(cmd: Cmd, source: &Source) -> Result<(), err::E> {
         _ => usage(),
     }
     Ok(())
+}
+
+fn open_file(path: &str) -> String {
+    match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(err) => {
+            die(&format!("Error opening {}: {}", path, err));
+        }
+    }
 }
 
 pub fn main() {
@@ -96,16 +133,10 @@ pub fn main() {
         usage();
     }
 
-    let text = match std::fs::read_to_string(&filename) {
-        Ok(text) => text,
-        Err(err) => {
-            die(&format!("Error opening {}: {}", filename, err));
-        }
-    };
-
+    let text = open_file(&filename);
     let source = Source { filename, text };
 
-    if let Err(e) = go(cmd, &source) {
+    if let Err(e) = go(&cmd, &source) {
         eprintln!("{}", err::new(&e, &source));
     }
 }

@@ -177,6 +177,7 @@ impl std::fmt::Display for Ty {
             Self::Int => write!(f, "int"),
             Self::I32 => write!(f, "i32"),
             Self::I64 => write!(f, "i64"),
+            Self::Numeric => write!(f, "numeric literal"),
             Self::Str => write!(f, "str"),
             Self::Bool => write!(f, "bool"),
             Self::NoneYet => write!(f, "?"),
@@ -194,7 +195,6 @@ impl std::fmt::Display for Ty {
                     .concat();
                 write!(f, "({}) -> {}", ps, ret)
             }
-            _ => todo!("display for {:?}", self),
         }
     }
 }

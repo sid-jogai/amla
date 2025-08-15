@@ -1,0 +1,5 @@
+func three(x: str, y: str, z: str) {}
+
+func bad() {
+	three("one", "two");
+}

@@ -1,7 +1,3 @@
-func print(s: str, ...args: any) {
-	// builtin
-}
-
 func main() int {
 	print("hello, world!");
 }

@@ -1,4 +1,5 @@
 use crate::ast::Pos;
+use crate::ast::Ty;
 use std::fmt::Write;
 
 pub struct Source {
@@ -11,6 +12,18 @@ pub struct E {
     pub source: Pos,
     pub kind: ErrorKind,
     pub notes: Vec<Note>,
+}
+
+impl E {
+    // e.g. x: i32 = "hello"
+    pub fn invalid_assignment_error(assign_stmt: Pos, annotation_ty: &Ty, expr_ty: &Ty) -> E {
+        E {
+            text: format!("cannot assign {:?} to {:?}", expr_ty, annotation_ty),
+            source: assign_stmt,
+            kind: ErrorKind::TypeError,
+            notes: vec![],
+        }
+    }
 }
 
 #[derive(Debug)]
