@@ -58,7 +58,7 @@ fn add_prelude(ast: ast::Stmt) -> Result<ast::Stmt, E> {
     let ast = ast::Stmt {
         id: ast.id,
         pos: ast.pos,
-        stmt: stmt,
+        stmt,
     };
     Ok(ast)
 }

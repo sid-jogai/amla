@@ -33,7 +33,6 @@ impl Pos {
             .chars()
             .fold((1, 0), |(line, col), c| match c {
                 '\n' => (line + 1, 0),
-                // '\t' => (line + 8, 0),
                 _ => (line, col + 1),
             })
     }

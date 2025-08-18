@@ -1,0 +1,3 @@
+func q(x: i32) {
+	y: str = x;
+}

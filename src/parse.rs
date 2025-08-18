@@ -7,8 +7,8 @@ use crate::ast::Pos;
 use crate::ast::StmtKind;
 use crate::ast::Ty;
 use crate::err;
+use crate::err::E;
 use crate::err::Source;
-use crate::err::syntax_error;
 use crate::lex;
 use crate::lex::TokenType;
 
@@ -39,7 +39,9 @@ enum Prec {
 
 fn prefix_prec(tok_kind: TokenType) -> Prec {
     match tok_kind {
-        TokenType::Identifier | TokenType::Number | TokenType::True | TokenType::False => Prec::Assign,
+        TokenType::Identifier | TokenType::Number | TokenType::True | TokenType::False => {
+            Prec::Assign
+        }
         TokenType::Minus => Prec::Neg,
         TokenType::Lparen => Prec::Group,
         _ => Prec::Invalid,
@@ -59,19 +61,6 @@ fn infix_prec(tok_kind: TokenType) -> Prec {
         | TokenType::Lt => Prec::Rel,
         _ => Prec::Invalid,
     }
-}
-
-macro_rules! expect {
-    ($self:ident, $pat:pat) => {{
-        if matches!($self.peek_tok().ty, $pat) {
-            $self.consume()
-        } else {
-            return Err(syntax_error!(
-                format!("unexpected token {:?}", $self.peek_tok().ty),
-                $self.pos()
-            ));
-        }
-    }};
 }
 
 impl<'a> Parser<'a> {
@@ -107,6 +96,14 @@ impl<'a> Parser<'a> {
     fn pos(&self) -> Pos {
         self.tokens[self.pos].pos
     }
+    fn expect(&mut self, tt: TokenType) -> Result<lex::Token, err::E> {
+        let got = self.peek_tok();
+        if got.ty == tt {
+            Ok(self.consume())
+        } else {
+            Err(E::expected_token(got.ty, tt, got.pos))
+        }
+    }
     fn parse_prog(mut self) -> Result<ast::Stmt, err::E> {
         let mut prog = Vec::new();
         loop {
@@ -114,11 +111,7 @@ impl<'a> Parser<'a> {
                 TokenType::EOF => break,
                 TokenType::Func => self.fn_decl(),
                 _ => {
-                    return Err(syntax_error!(
-                        format!("expected top level statement"),
-                        self.pos(),
-                        format!("note: expected one of 'func' ")
-                    ));
+                    return Err(E::expected_top_level_statement(self.pos()));
                 }
             };
             match stmt {
@@ -158,7 +151,7 @@ impl<'a> Parser<'a> {
             lex::TokenType::Eq => false,
             lex::TokenType::Colon => true,
             _ => {
-                expect!(self, TokenType::Semicolon);
+                self.expect(TokenType::Semicolon)?;
                 return Ok(ast::Stmt {
                     id: self.new_id(),
                     pos: expr.pos,
@@ -173,11 +166,11 @@ impl<'a> Parser<'a> {
         };
         if is_assignment {
             ty = self.ty()?;
-            expect!(self, TokenType::Eq);
+            self.expect(TokenType::Eq)?;
         }
         let val = Box::new(self.expr()?);
 
-        expect!(self, TokenType::Semicolon);
+        self.expect(TokenType::Semicolon)?;
 
         Ok(ast::Stmt {
             id: self.new_id(),
@@ -190,16 +183,17 @@ impl<'a> Parser<'a> {
         })
     }
     fn fn_decl(&mut self) -> Result<ast::Stmt, err::E> {
-        let def = expect!(self, TokenType::Func);
-        let name = expect!(self, TokenType::Identifier).pos.name_pos(self.src);
-        expect!(self, TokenType::Lparen);
+        let def = self.expect(TokenType::Func)?;
+        let name = self.expect(TokenType::Identifier)?;
+        let name = name.pos.name_pos(self.src);
+        self.expect(TokenType::Lparen)?;
 
         let mut params = Vec::new();
         let rparen = match self.peek_kind() {
             TokenType::Rparen => self.consume(),
             _ => {
                 params = self.param_list()?;
-                expect!(self, TokenType::Rparen)
+                self.expect(TokenType::Rparen)?
             }
         };
 
@@ -207,7 +201,6 @@ impl<'a> Parser<'a> {
         let tok = self.peek_tok();
         if tok.ty != TokenType::Lbrace {
             ret = Some(self.ty()?);
-            // return Err(syntax_error!(format!("expected {{"), rparen.pos));
         }
         let sig = Pos::new(def.pos.l(), tok.pos.r());
         let body = self.suite()?;
@@ -224,21 +217,17 @@ impl<'a> Parser<'a> {
         })
     }
     fn if_stmt(&mut self, tt: TokenType) -> Result<ast::Stmt, err::E> {
-        let start = expect!(self, tt);
+        let start = self.expect(tt)?;
         let cond = Box::new(self.expr()?);
-        let block_start = self.peek_tok();
-        if block_start.ty != TokenType::Lbrace {
-            return Err(syntax_error!(
-                format!("expected {{"),
-                Pos::new(start.pos.l(), block_start.pos.r())
-            ));
-        }
+
+        let block_start = self.expect(TokenType::Lbrace)?;
+
         let yes = self.suite()?;
         let mut no = None;
         match self.peek_kind() {
             TokenType::Else => {
-                expect!(self, TokenType::Else);
-                expect!(self, TokenType::Colon);
+                self.expect(TokenType::Else)?;
+                self.expect(TokenType::Colon)?;
                 no = Some(self.suite()?);
             }
             _ => (),
@@ -252,7 +241,6 @@ impl<'a> Parser<'a> {
                 no,
             })),
         })
-        // todo!()
     }
     fn param_list(&mut self) -> Result<Vec<ast::Param>, err::E> {
         let mut params = Vec::new();
@@ -263,18 +251,14 @@ impl<'a> Parser<'a> {
             }
             // TODO: only last parameter can be variadic
 
-            let name = expect!(self, TokenType::Identifier);
+            let name = self.expect(TokenType::Identifier)?;
             /* TODO: Error message if the user forgot. */
             if matches!(self.peek_tok().ty, TokenType::Rparen | TokenType::Comma) {
                 let pk = self.peek_tok();
-                return Err(syntax_error!(
-                    format!("unexected {:?}", pk.ty),
-                    pk.pos,
-                    format!("note: did you forget to annotate the type?")
-                ));
+                return Err(E::expected_type(pk.pos));
             }
 
-            expect!(self, TokenType::Colon);
+            self.expect(TokenType::Colon)?;
 
             let mut ty = self.ty()?;
             if is_variadic {
@@ -293,7 +277,7 @@ impl<'a> Parser<'a> {
                 });
                 break;
             }
-            expect!(self, TokenType::Comma);
+            self.expect(TokenType::Comma)?;
             params.push(ast::Param {
                 name: ast::NamePos {
                     name: name.pos.show(self.src).to_string(),
@@ -305,7 +289,7 @@ impl<'a> Parser<'a> {
         Ok(params)
     }
     fn suite(&mut self) -> Result<Box<ast::Stmt>, err::E> {
-        let start = expect!(self, TokenType::Lbrace);
+        let start = self.expect(TokenType::Lbrace)?;
         let mut v = Vec::new();
         loop {
             if self.peek_kind() == TokenType::Rbrace {
@@ -314,7 +298,7 @@ impl<'a> Parser<'a> {
             let stmt = self.parse_stmt()?;
             v.push(stmt);
         }
-        let end = expect!(self, TokenType::Rbrace);
+        let end = self.expect(TokenType::Rbrace)?;
         let end_pos = match &v[..] {
             [.., x] => x.pos.r(),
             [] => end.pos.r(),
@@ -327,7 +311,7 @@ impl<'a> Parser<'a> {
         }))
     }
     fn ty(&mut self) -> Result<ast::TyPos, err::E> {
-        let tok = expect!(self, TokenType::Identifier);
+        let tok = self.expect(TokenType::Identifier)?;
         match tok.ty {
             TokenType::Identifier => {
                 let ty = match &tok.pos.show(self.src)[..] {
@@ -338,7 +322,7 @@ impl<'a> Parser<'a> {
                     "bool" => Ty::Bool,
                     "any" => Ty::Any,
                     _ => {
-                        return Err(syntax_error!("invalid type".to_string(), tok.pos));
+                        return Err(E::expected_type(tok.pos));
                     }
                 };
                 Ok(ast::TyPos { ty, pos: tok.pos })
@@ -347,15 +331,16 @@ impl<'a> Parser<'a> {
         }
     }
     fn return_stmt(&mut self) -> Result<ast::Stmt, err::E> {
-        let start = expect!(self, TokenType::Return).pos.l();
+        let start = self.expect(TokenType::Return)?.pos.l();
         let (pos, expr) = match self.peek_kind() {
             TokenType::Semicolon => {
-                let end = expect!(self, TokenType::Semicolon).pos.r();
+                let end = self.expect(TokenType::Semicolon)?;
+                let end = end.pos.r();
                 (Pos::new(start, end), None)
             }
             _ => {
                 let expr = Box::new(self.expr()?);
-                let end = expect!(self, TokenType::Semicolon).pos.r();
+                let end = self.expect(TokenType::Semicolon)?.pos.r();
                 (Pos::new(start, end), Some(expr))
             }
         };
@@ -377,16 +362,21 @@ impl<'a> Parser<'a> {
         self.parse_expr(Prec::Assign)
     }
     fn parse_expr(&mut self, prec: Prec) -> Result<ast::Expr, err::E> {
-        let mut tok = expect!(
-            self,
+        let tok = self.peek_tok();
+        if !matches!(
+            tok.ty,
             TokenType::Identifier
                 | TokenType::Number
                 | TokenType::Minus
                 | TokenType::Lparen
                 | TokenType::Str
-		| TokenType::True
-		| TokenType::False
-        );
+                | TokenType::True
+                | TokenType::False
+        ) {
+            return Err(E::expected_expression(tok.pos));
+        }
+        let mut tok = self.consume();
+
         let mut left = self.prefix_expr(tok)?;
         let new_prec = infix_prec(self.peek_tok().ty);
         while prec < infix_prec(self.peek_kind()) {
@@ -436,15 +426,9 @@ impl<'a> Parser<'a> {
                 })
             }
             TokenType::Number => {
-                let value: i64 = match tok.pos.show(self.src).chars().collect::<String>().parse() {
+                let value: u64 = match tok.pos.show(self.src).chars().collect::<String>().parse() {
                     Err(err) => {
-                        return Err(syntax_error!(
-                            "numeric literal too large".to_string(),
-                            tok.pos,
-                            format!("note: the max literal size is {}", i64::MAX)
-                        ));
-                        /* Give a dummy value to continue parsing. */
-                        0
+                        return Err(E::numeric_literal_exceeds_u64_max(tok.pos));
                     }
                     Ok(v) => v,
                 };
@@ -452,11 +436,11 @@ impl<'a> Parser<'a> {
                     id: self.new_id(),
                     pos: tok.pos,
                     ty: Ty::NoneYet,
-                    expr: ExprKind::Literal(ast::Literal::Number(value)),
+                    expr: ExprKind::Literal(ast::Literal::Number(value as i64)),
                 })
             }
             t @ (TokenType::True | TokenType::False) => {
-		let expr = ast::Literal::Bool(if t==TokenType::True {true} else {false});
+                let expr = ast::Literal::Bool(t == TokenType::True);
                 Ok(ast::Expr {
                     id: self.new_id(),
                     pos: tok.pos,
@@ -468,7 +452,7 @@ impl<'a> Parser<'a> {
             TokenType::Lparen => {
                 let expr = self.parse_expr(Prec::Assign)?;
 
-                let rparen = expect!(self, TokenType::Rparen);
+                let rparen = self.expect(TokenType::Rparen)?;
                 Ok(ast::Expr {
                     id: expr.id,
                     ty: Ty::NoneYet,
@@ -521,19 +505,17 @@ impl<'a> Parser<'a> {
                 let mut args = Vec::new();
 
                 let end = if self.peek_kind() == TokenType::Rparen {
-                    expect!(self, TokenType::Rparen).pos.r()
+                    self.expect(TokenType::Rparen)?.pos.r()
                 } else {
                     loop {
-                        // self.check()?;
                         let expr = self.parse_expr(Prec::Assign)?;
                         args.push(expr);
-                        // self.check()?;
                         if self.peek_kind() == TokenType::Rparen {
                             break;
                         }
-                        expect!(self, TokenType::Comma);
+                        self.expect(TokenType::Comma)?;
                     }
-                    expect!(self, TokenType::Rparen).pos.r()
+                    self.expect(TokenType::Rparen)?.pos.r()
                 };
 
                 Ok(ast::Expr {

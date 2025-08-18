@@ -3,12 +3,12 @@ use crate::ast::ExprKind;
 use crate::ast::Literal;
 use crate::ast::StmtKind;
 use crate::ast::Ty;
-use crate::err;
+use crate::err::E;
 
 use std::fs;
 use std::process::Command;
 
-pub fn transpile(ast: ast::Stmt) -> Result<String, err::E> {
+pub fn transpile(ast: ast::Stmt) -> Result<String, E> {
     let mut s = String::new();
     let mut ctx = Ctx { depth: 0 };
 
@@ -49,7 +49,7 @@ pub fn compile(c_code: String) -> Result<String, String> {
 }
 
 trait Transpile {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E>;
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E>;
 }
 
 #[derive(Debug)]
@@ -74,7 +74,7 @@ impl Ctx {
 }
 
 impl Transpile for ast::Stmt {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E> {
         match &self.stmt {
             StmtKind::FnDecl(func) => {
                 // Some functions are special cased by the compiler, but their
@@ -110,7 +110,11 @@ impl Transpile for ast::Stmt {
 }
 
 impl Transpile for ast::Fn {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E> {
+        if self.name.name != "main" {
+            s.push_str("static ")
+        }
+
         match &self.ret {
             Some(ty) => ty.ty.transpile(ctx, s)?,
             None => s.push_str("void"),
@@ -136,7 +140,7 @@ impl Transpile for ast::Fn {
 }
 
 impl Transpile for ast::Param {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E> {
         self.ty.ty.transpile(ctx, s)?;
         s.push(' ');
         s.push_str(&self.name.name);
@@ -145,12 +149,12 @@ impl Transpile for ast::Param {
 }
 
 impl Transpile for ast::Ty {
-    fn transpile(&self, _: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, _: &mut Ctx, s: &mut String) -> Result<(), E> {
         match self {
             ast::Ty::Int => s.push_str("int"),
             ast::Ty::I32 => s.push_str("int32_t"),
             ast::Ty::I64 => s.push_str("int64_t"),
-	    ast::Ty::Bool => s.push_str("bool"),
+            ast::Ty::Bool => s.push_str("bool"),
             _ => s.push_str("<type>"),
         }
         Ok(())
@@ -158,7 +162,7 @@ impl Transpile for ast::Ty {
 }
 
 impl Transpile for ast::Return {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E> {
         match &self.0 {
             None => s.push_str("return;"),
             Some(expr) => {
@@ -172,7 +176,7 @@ impl Transpile for ast::Return {
 }
 
 impl Transpile for ast::Expr {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E> {
         match &self.expr {
             ExprKind::Literal(literal) => {
                 literal.transpile(ctx, s)?;
@@ -194,7 +198,7 @@ impl Transpile for ast::Expr {
 }
 
 impl Transpile for Literal {
-    fn transpile(&self, _: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, _: &mut Ctx, s: &mut String) -> Result<(), E> {
         match self {
             Literal::Number(n) => s.push_str(&n.to_string()),
             Literal::Bool(false) => s.push_str("false"),
@@ -211,14 +215,14 @@ impl Transpile for Literal {
 }
 
 impl Transpile for ast::Identifier {
-    fn transpile(&self, _: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, _: &mut Ctx, s: &mut String) -> Result<(), E> {
         s.push_str(&self.0);
         Ok(())
     }
 }
 
 impl Transpile for ast::Call {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E> {
         match &self.caller.expr {
             ExprKind::Identifier(identifier) => {
                 // TODO: destructure to gensym_add which might do error checking.
@@ -270,7 +274,7 @@ enum BinOpKind {
 }
 
 impl Transpile for BinOp {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E> {
         s.push('(');
         self.left.transpile(ctx, s)?;
         s.push(' ');
@@ -283,7 +287,7 @@ impl Transpile for BinOp {
 }
 
 impl Transpile for BinOpKind {
-    fn transpile(&self, _: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, _: &mut Ctx, s: &mut String) -> Result<(), E> {
         match self {
             BinOpKind::Add => s.push('+'),
             BinOpKind::Minus => s.push('-'),
@@ -295,7 +299,7 @@ impl Transpile for BinOpKind {
 }
 
 impl Transpile for ast::If {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E> {
         s.push_str("if (");
         self.cond.transpile(ctx, s)?;
         s.push_str(") ");
@@ -307,7 +311,7 @@ impl Transpile for ast::If {
 }
 
 impl Transpile for ast::Assign {
-    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), err::E> {
+    fn transpile(&self, ctx: &mut Ctx, s: &mut String) -> Result<(), E> {
         self.ty.ty.transpile(ctx, s)?;
         s.push(' ');
         s.push_str(&self.name.name);
@@ -329,7 +333,7 @@ fn print(
     args: &[ast::Expr],
     ctx: &mut Ctx,
     s: &mut String,
-) -> Result<(), err::E> {
+) -> Result<(), E> {
     let format_string = match &args[0].expr {
         ExprKind::Literal(Literal::Str(s)) => s,
         _ => unreachable!(),
@@ -337,22 +341,17 @@ fn print(
     let mut c_format_string = String::new();
     let parts: Vec<_> = format_string.match_indices("%v").collect();
     if parts.len() != args.len() - 1 {
-        return Err(err::E {
-            text: "wrong number of format arguments".to_string(),
-            source: call_expr.pos,
-            kind: err::ErrorKind::TypeError,
-            notes: vec![],
-        });
+        return Err(E::print_wrong_number_of_format_arguments(call_expr.pos));
     }
     let mut i = 0;
     for (j, part) in parts.into_iter().enumerate() {
-	if args[j + 1].ty == Ty::Bool {
-	    c_format_string.push_str("\"");
-	    c_format_string.push_str(&format_string[i..part.0]);
-	    c_format_string.push_str("%s\"");
-	    i = part.0 + 2;
-	    continue
-	}
+        if args[j + 1].ty == Ty::Bool {
+            c_format_string.push('"');
+            c_format_string.push_str(&format_string[i..part.0]);
+            c_format_string.push_str("%s\"");
+            i = part.0 + 2;
+            continue;
+        }
         c_format_string.push('"');
         c_format_string.push_str(&format_string[i..part.0]);
 
@@ -382,13 +381,13 @@ fn print(
             continue;
         }
 
-	if arg.ty == Ty::Bool {
-	    s.push_str("bool_string(");
-	    arg.transpile(ctx, s)?;
-	    s.push(')');
-	} else {
+        if arg.ty == Ty::Bool {
+            s.push_str("bool_string(");
             arg.transpile(ctx, s)?;
-	}
+            s.push(')');
+        } else {
+            arg.transpile(ctx, s)?;
+        }
 
         if i < args.len() - 1 {
             s.push_str(", ");

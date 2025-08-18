@@ -3,7 +3,7 @@
 #include <stdint.h>   // int64_t, etc.
 #include <stdio.h>    // printf
 
-char *
+static char *
 bool_string(bool x)
 {
 	return x ? "true" : "false";

@@ -1,7 +1,7 @@
 use crate::ast::Pos;
 use crate::err;
+use crate::err::E;
 use crate::err::Source;
-use crate::err::syntax_error;
 
 pub fn lex(source: &Source) -> Result<Vec<Token>, err::E> {
     match Lexer::new(&source.text).lex() {
@@ -74,7 +74,7 @@ pub enum TokenType {
     While,
     Ellipsis,
 
-    True, // true
+    True,  // true
     False, // false
 }
 
@@ -83,8 +83,6 @@ struct Lexer<'src> {
     cur: std::str::CharIndices<'src>,
     tokens: Vec<Token>,
     errors: Vec<err::E>,
-    /// Unbalanced parentheses are detected in the lexer.
-    parens: Vec<Pos>,
 }
 
 impl Lexer<'_> {
@@ -93,7 +91,6 @@ impl Lexer<'_> {
             src,
             cur: src.char_indices(),
             tokens: Vec::new(),
-            parens: Vec::new(),
             errors: Vec::new(),
         }
     }
@@ -147,23 +144,9 @@ impl Lexer<'_> {
             '\t' => {
                 self.advance(1);
             }
-            '(' => {
-                let p = self.pos();
-                self.parens.push(Pos::new(p, p + 1));
-                self.add_tok(TokenType::Lparen, 1)
-            }
-            ')' => {
-                if self.parens.is_empty() {
-                    let pos = self.pos();
-                    self.errors.push(syntax_error!(
-                        "Unmatched ')'".to_string(),
-                        Pos::new(pos, pos + 1)
-                    ));
-                } else {
-                    self.parens.pop();
-                }
-                self.add_tok(TokenType::Rparen, 1)
-            }
+            // NOTE: maybe detect unmatched parens/braces
+            '(' => self.add_tok(TokenType::Lparen, 1),
+            ')' => self.add_tok(TokenType::Rparen, 1),
             ';' => self.add_tok(TokenType::Semicolon, 1),
             '&' => self.add_tok(TokenType::Ampersand, 1), // TODO
             '{' => self.add_tok(TokenType::Lbrace, 1),
@@ -225,10 +208,7 @@ impl Lexer<'_> {
                     .count();
                 if self.cur.clone().nth(length).map(|(_, c)| c) == Some('\n') {
                     let err_pos = Pos::new(self.pos(), self.pos() + length);
-                    self.errors.push(syntax_error!(
-                        "unterminated string literal".to_string(),
-                        err_pos
-                    ));
+                    self.errors.push(E::unterminated_string_literal(err_pos));
                 }
                 self.add_tok(TokenType::Str, length + 1)
             }
@@ -241,10 +221,7 @@ impl Lexer<'_> {
                     .count();
                 if self.cur.clone().nth(length).map(|(_, c)| c) == Some('\n') {
                     let err_pos = Pos::new(self.pos(), self.pos() + length);
-                    self.errors.push(syntax_error!(
-                        "unterminated char literal".to_string(),
-                        err_pos
-                    ));
+                    self.errors.push(E::unterminated_character_literal(err_pos));
                 }
                 self.add_tok(TokenType::Char, length + 1)
             }
@@ -265,8 +242,8 @@ impl Lexer<'_> {
                     "if" => TokenType::If,
                     "return" => TokenType::Return,
                     "while" => TokenType::While,
-		    "true" => TokenType::True,
-		    "false" => TokenType::False,
+                    "true" => TokenType::True,
+                    "false" => TokenType::False,
                     _ => TokenType::Identifier,
                 };
                 self.add_tok(kind, end - start)
@@ -276,14 +253,10 @@ impl Lexer<'_> {
             }
             '\n' => {
                 self.advance(1);
-                // self.add_tok(TokenType::Newline, 1);
             }
             r => {
                 let err_pos = Pos::new(self.pos(), self.pos() + 1);
-                self.errors.push(syntax_error!(
-                    format!("unrecognised character {r}"),
-                    err_pos
-                ));
+                self.errors.push(E::unrecognized_character(r, err_pos));
                 return false;
             }
         };

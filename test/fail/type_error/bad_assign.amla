@@ -1,3 +1,0 @@
-func bad_assignment(x: i32) {
-	y :str = x;
-}

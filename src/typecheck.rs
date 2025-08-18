@@ -1,15 +1,13 @@
 use crate::ast;
 use crate::ast::Expr;
 use crate::ast::ExprKind;
-use crate::ast::Pos;
 use crate::ast::Stmt;
 use crate::ast::StmtKind;
 use crate::ast::Ty;
-use crate::err;
 use crate::err::E;
 use std::collections::HashMap;
 
-pub fn typecheck(ast: &mut Stmt) -> Result<(), err::E> {
+pub fn typecheck(ast: &mut Stmt) -> Result<(), E> {
     let mut m = TypeMap::new();
 
     match typecheck_stmt(ast, &mut m) {
@@ -49,7 +47,7 @@ impl TypeMap {
     }
 }
 
-fn typecheck_stmt(stmt: &mut Stmt, m: &mut TypeMap) -> Result<(), err::E> {
+fn typecheck_stmt(stmt: &mut Stmt, m: &mut TypeMap) -> Result<(), E> {
     match &mut stmt.stmt {
         //             StmtKind::If(_) => Ok(()),
         //             StmtKind::ExprStmt(x) => self.resolve_expr(x),
@@ -79,7 +77,7 @@ fn typecheck_stmt(stmt: &mut Stmt, m: &mut TypeMap) -> Result<(), err::E> {
                     if got == *annotation {
                         got.clone()
                     } else {
-                        return Err(E::invalid_assignment_error(stmt.pos, annotation, &got));
+                        return Err(E::invalid_assignment(annotation, &got, stmt.pos));
                     }
                 }
             };
@@ -110,10 +108,10 @@ fn typecheck_stmt(stmt: &mut Stmt, m: &mut TypeMap) -> Result<(), err::E> {
     }
 }
 
-fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, err::E> {
+fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, E> {
     let expr_ty = match &mut expr.expr {
         ExprKind::Identifier(ast::Identifier(s)) => match m.lookup(s) {
-            None => Err(undeclared_identifier_err(expr.pos, s)),
+            None => Err(E::undeclared_identifier(s, expr.pos)),
             Some(ty) => Ok(ty),
         },
         ExprKind::Literal(literal) => Ok(match literal {
@@ -131,7 +129,7 @@ fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, err::E> {
 
             let (params, ret) = match fn_ty {
                 Ty::Fn(ref params, ref ret) => (params, ret.clone()),
-                _ => return Err(bad_caller_err(call.caller.pos)),
+                _ => return Err(E::not_a_function(call.caller.pos)),
             };
             let args = &mut call.args;
 
@@ -141,11 +139,11 @@ fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, err::E> {
                 if let Ty::Variadic(_) = param {
                     if args.len() < i - 1 {
                         let footnote = format!("{caller_name}: {fn_ty}");
-                        return Err(incorrect_fn_args_count_error(expr.pos, &footnote));
+                        return Err(E::incorrect_argument_count(&footnote, expr.pos));
                     }
                 } else if i == params.len() - 1 && args.len() < params.len() {
                     let footnote = format!("{caller_name}: {fn_ty}");
-                    return Err(incorrect_fn_args_count_error(expr.pos, &footnote));
+                    return Err(E::incorrect_argument_count(&footnote, expr.pos));
                 }
             }
 
@@ -153,7 +151,7 @@ fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, err::E> {
             for arg in args {
                 if !variadic && param_index >= params.len() {
                     let footnote = format!("{caller_name}: {fn_ty}");
-                    return Err(incorrect_fn_args_count_error(expr.pos, &footnote));
+                    return Err(E::incorrect_argument_count(&footnote, expr.pos));
                 }
 
                 let param_ty = &params[param_index];
@@ -173,7 +171,7 @@ fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, err::E> {
 
                 if *param_ty != Ty::Any && *param_ty != arg_ty {
                     let footnote = format!("{caller_name}: {fn_ty}");
-                    return Err(ty_missmatch_err(param_ty, &arg_ty, arg.pos, &footnote));
+                    return Err(E::type_missmatch(param_ty, &arg_ty, &footnote, arg.pos));
                 }
             }
             Ok(*ret)
@@ -184,23 +182,14 @@ fn typecheck_expr(expr: &mut Expr, m: &mut TypeMap) -> Result<ast::Ty, err::E> {
     Ok(expr.ty.clone())
 }
 
-fn ty_missmatch_err(param_ty: &Ty, arg_ty: &Ty, arg_pos: Pos, fn_string: &str) -> err::E {
-    err::E {
-        text: format!("expected {}, found {}", param_ty, arg_ty),
-        source: arg_pos,
-        kind: err::ErrorKind::TypeError,
-        notes: vec![err::Note::Footnote(format!("note: {fn_string}"))],
-    }
-}
-
-// fn expected_return_err(ret_pos: Pos, exp_ty: &Ty, fn_pos: Pos) -> err::E {
-//     err::E {
+// fn expected_return_err(ret_pos: Pos, exp_ty: &Ty, fn_pos: Pos) -> E {
+//     E {
 //         text: format!(
 //             "empty return; expected an expression of type {}",
 //             exp_ty
 //         ),
 //         source: ret_pos,
-//         kind: err::ErrorKind::TypeError,
+//         kind: ErrorKind::TypeError,
 //         notes: vec![err::Note::Note {
 //             text: "note: expected due to this".to_string(),
 //             pos: fn_pos,
@@ -208,60 +197,32 @@ fn ty_missmatch_err(param_ty: &Ty, arg_ty: &Ty, arg_pos: Pos, fn_string: &str) -
 //     }
 // }
 
-fn undeclared_identifier_err(pos: Pos, name: &str) -> err::E {
-    err::E {
-        text: format!("undeclared identifier \"{}\"", name),
-        source: pos,
-        kind: err::ErrorKind::TypeError,
-        notes: vec![],
-    }
-}
-
-// fn return_stmt_outside_fn_err(pos: Pos) -> err::E {
-//     err::E {
+// fn return_stmt_outside_fn_err(pos: Pos) -> E {
+//     E {
 //         text: "return statement outside of function".to_string(),
 //         source: pos,
-//         kind: err::ErrorKind::SyntaxError,
+//         kind: ErrorKind::SyntaxError,
 //         notes: vec![],
 //     }
 // }
 //
-// fn nested_fn_err(pos: Pos) -> err::E {
-//     err::E {
+// fn nested_fn_err(pos: Pos) -> E {
+//     E {
 //         text: "nested functions not allowed".to_string(),
 //         source: pos,
-//         kind: err::ErrorKind::SyntaxError,
+//         kind: ErrorKind::SyntaxError,
 //         notes: vec![],
 //     }
 // }
 //
-// fn identifier_exists_err(pos: Pos, name: String, prev_pos: Pos) -> err::E {
-//     err::E {
+// fn identifier_exists_err(pos: Pos, name: String, prev_pos: Pos) -> E {
+//     E {
 //         text: "identifier already exists".to_string(),
 //         source: pos,
-//         kind: err::ErrorKind::SyntaxError,
+//         kind: ErrorKind::SyntaxError,
 //         notes: vec![err::Note::Note {
 //             text: format!("note: \"{}\" previously declared here", name),
 //             pos: prev_pos,
 //         }],
 //     }
 // }
-
-fn bad_caller_err(pos: Pos) -> err::E {
-    err::E {
-        text: "not a function".to_string(),
-        source: pos,
-        kind: err::ErrorKind::SyntaxError,
-        notes: vec![],
-    }
-}
-
-fn incorrect_fn_args_count_error(pos: Pos, footnote: &str) -> err::E {
-    let text = "incorrect number of arguments supplied".to_string();
-    err::E {
-        text,
-        source: pos,
-        kind: err::ErrorKind::SyntaxError,
-        notes: vec![err::Note::Footnote(format!("note: {footnote}"))],
-    }
-}

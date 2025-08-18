@@ -1,0 +1,7 @@
+func q(x: i32) {
+	
+}
+
+func x() {
+     q("foo");
+}

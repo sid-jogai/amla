@@ -10,3 +10,8 @@ f:
 
 tidy:
 	rm -rf a.out amla target/
+
+test:
+	bash test.sh
+
+.PHONY: test
